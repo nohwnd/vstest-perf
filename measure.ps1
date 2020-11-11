@@ -1,6 +1,8 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+. "$PSScriptRoot/process-logs.ps1"
+
 Get-ChildItem obj, dir -Directory -Recurse | Remove-Item -Recurse -Force -Confirm:$false
 
 $dotnetVersion = dotnet --version
@@ -97,6 +99,23 @@ foreach ($try in 1..$tries) {
             Set-StrictMode -Off
 
             try {
+                # process logs
+                $logEntries = Get-LogEvent $logDirectory
+                # host starting is when vstest.console starts testhost, 
+                # this is when it actually starts and logs first entry into the log
+                # so process startup + init + log init
+                $hostStarted = $logEntries | Where-Object Event -EQ "HostStarted"
+                # when the host logged the last message in host log
+                # unlike HostStopped when vstest.console detects that testhost process exited
+                $hostStopping = $logEntries | Where-Object Event -EQ "HostStopping"
+            }
+            catch { 
+                $hostDuration = [TimeSpan]::Zero
+                $events = @()
+            }
+
+
+            try {
                 # get testhost execution time
                 $hostLog = Get-ChildItem $logDirectory -Filter '*host*'
                 $hostLogContent = Get-Content $hostLog
@@ -105,7 +124,6 @@ foreach ($try in 1..$tries) {
                 $hostDuration = [TimeSpan]::FromTicks($hostEnd - $hostStart)
             }
             catch { 
-                $hostDuration = [TimeSpan]::Zero
             }
 
             $duration = $sw.Elapsed
