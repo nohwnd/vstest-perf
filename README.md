@@ -5,9 +5,17 @@ Compare performance of different versions of Test.SDK based on the reported time
 Just run `measure.ps1`. It requires a specific version of dotnet SDK, but you can change it in `global.json`, it might change your results, as different runner is shipped with different versions of SDK.
 
 ```powershell
-$classes = 100
-$tests = 100
+$versions = @("16.5", "16.7.1")
+# uncomment to use all
+# $versions = @()
+
+$framework = "MSTest"
+
+$classes = 60
+$tests = 60
+
 $tries = 3 # try 1 will build the dll from scratch
+$showFirstTry = $false
 ```
 
 ## Adding new version of Test.SDK

@@ -15,15 +15,31 @@ if ($dotnetVersion -notlike "3.1*") {
 
 Write-Host "Using dotnet $dotnetVersion"
 
-
-$projects = Get-ChildItem *.csproj -Recurse
+$versions = @("16.5", "16.7.1")
+# uncomment to use all
+# $versions = @()
 
 $framework = "MSTest"
 
-$classes = 100
-$tests = 100
-$tries = 3
+$classes = 60
+$tests = 60
 
+$tries = 3 # try 1 will build the dll from scratch
+$showFirstTry = $false
+
+####
+
+$projects = Get-ChildItem '*.csproj' -Recurse | Where-Object { 
+    if ($null -eq $versions -or 0 -eq $versions.Count) { 
+        $true 
+    }
+    else { 
+        $name = $_.BaseName
+        $any = $versions | Where-Object { $name -like "*$_*" } 
+        # true when there are any items
+        [bool] $any
+    } 
+}
 
 $total = 0
 $content =  
@@ -142,5 +158,5 @@ foreach ($e in $entriesFromFastest) {
         Add-Member -Name PercentDiff -MemberType NoteProperty -Value $percentDelta
 }
 
-$entriesFromFastest | Format-Table PercentDiff, DurationDiff, DurationMs, Project, Try, Tests, Classes, Total, HostDuration
+$entriesFromFastest | Where-Object { 1 -ne $_.Try -or $showFirstTry } | Format-Table PercentDiff, DurationDiff, DurationMs, Project, Try, Tests, Classes, Total, HostDuration
  
