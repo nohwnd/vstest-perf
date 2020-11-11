@@ -15,3 +15,9 @@ dotnet new mstest
 
 Then remove the UnitTests1.cs, and copy paste from other csproj, into the new csproj. Change just the Test.SDK package version to align with the name of the folder. 
 
+## History
+Runs and logs are stored in history directory, with the data in JSON format for later analysis. Change the ObjectVersion on the json object if you change the data in it so it can be distinguished later. 
+
+
+
+
