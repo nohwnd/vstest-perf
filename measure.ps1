@@ -4,6 +4,7 @@ Set-StrictMode -Version Latest
 Get-ChildItem obj, dir -Directory -Recurse | Remove-Item -Recurse -Force -Confirm:$false
 
 $dotnetVersion = dotnet --version
+$now = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH-mm-ss")
 $history = "$PSScriptRoot/history/$now"
 
 $null = New-Item $history -ItemType Directory -Force
@@ -14,7 +15,6 @@ if ($dotnetVersion -notlike "3.1*") {
 
 Write-Host "Using dotnet $dotnetVersion"
 
-$now = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH-mm-ss")
 
 $projects = Get-ChildItem *.csproj -Recurse
 
