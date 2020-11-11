@@ -22,7 +22,7 @@ $framework = "MSTest"
 
 $classes = 100
 $tests = 100
-$tries = 5
+$tries = 3
 
 
 $total = 0
@@ -60,7 +60,8 @@ foreach ($try in 1..$tries) {
             $failed = $false
 
             $p = $project.BaseName
-            $log = "$history/$p/$try/log_${p}_${now}_${try}"
+            $logDirectory = "$history/$p/$try"
+            $log = "$logDirectory/log_${p}_${now}_${try}"
             $logPath = "$log.txt"
             
             $command = { dotnet test $project --diag:"$logPath" }
@@ -79,12 +80,27 @@ foreach ($try in 1..$tries) {
             # avoid throws when we did not set a variable because we failed early
             Set-StrictMode -Off
 
+            try {
+                # get testhost execution time
+                $hostLog = Get-ChildItem $logDirectory -Filter '*host*'
+                $hostLogContent = Get-Content $hostLog
+                $hostStart = [long]::Parse(($hostLogContent[0] -split ",", 6)[4])
+                $hostEnd = [long]::Parse(($hostLogContent[-1] -split ",", 6)[4])
+                $hostDuration = [TimeSpan]::FromTicks($hostEnd - $hostStart)
+            }
+            catch { 
+                $hostDuration = [TimeSpan]::Zero
+            }
+
             $duration = $sw.Elapsed
             Write-Host "Time $($duration.TotalMilliseconds) ms"
             $entry = [PSCustomObject] @{
-                ObjectVersion = "3"
+                ObjectVersion = "4"
                 Now = [string] $now
                 Try = $try
+                HostDuration = $hostDuration
+                HostDurationTicks = $hostDuration.Ticks
+                HostDurationMs = $hostDuration.TotalMilliseconds
                 DurationTicks = $duration.Ticks
                 DurationMs = $duration.TotalMilliseconds
                 Duration = $duration
@@ -126,5 +142,5 @@ foreach ($e in $entriesFromFastest) {
         Add-Member -Name PercentDiff -MemberType NoteProperty -Value $percentDelta
 }
 
-$entriesFromFastest | Format-Table PercentDiff, DurationDiff, DurationMs, Project, Try, Tests, Classes, Total
+$entriesFromFastest | Format-Table PercentDiff, DurationDiff, DurationMs, Project, Try, Tests, Classes, Total, HostDuration
  
