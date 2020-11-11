@@ -1,14 +1,16 @@
+Compare performance of different versions of Test.SDK based on the reported times and wall-clock measurements. .NET Core 3.1 SDK is used as it is the most popular and will be for some time. There is very little we can do about improving the runner (vstest.console) part shipped with that SDK so this is solely focusing on the testhost and it's performance, as it is shipped by a nuget package and can be updated in any .NETCore project easily. 
+
+# Usage
+
 Just run `measure.ps1`. It requires a specific version of dotnet SDK, but you can change it in `global.json`, it might change your results, as different runner is shipped with different versions of SDK.
 
 ```powershell
 $classes = 100
 $tests = 100
-$tries = 5
+$tries = 3 # try 1 will build the dll from scratch
 ```
-## Adding new version
 
-
-
+## Adding new version of Test.SDK
 To add new version do: 
 ```
 mkdir Version16.9
