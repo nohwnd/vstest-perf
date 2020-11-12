@@ -15,7 +15,7 @@ function Get-LogEvent {
     $log = [Collections.Generic.List[string]]@()
     $h = 0 
     $hCount = $hostLog.Length
-    $c
+    $c = 0
     foreach ($l in $consoleLog) {        
         $log.Add($l)
 
@@ -53,7 +53,7 @@ function Get-LogEvent {
 
     $hostPatterns = @(
         [PSCustomObject] @{
-            Pattern = { param ($l) $l -like "DotnetTestHostManager: Starting process*" }
+            Pattern = { param ($Message) $Message -like "DotnetTestHostManager: Starting process*" }
             # name of the event
             Name = "TestHostStarting"
 
@@ -66,7 +66,7 @@ function Get-LogEvent {
         }
 
         [PSCustomObject] @{
-            Pattern = { param ($l) $l -like "DefaultEngineInvoker.Invoke: Testhost process started with*"}
+            Pattern = { param ($Message) $Message -like "DefaultEngineInvoker.Invoke: Testhost process started with*"}
             # name of the event
             Name = "TestHostStarted"
 
@@ -77,14 +77,102 @@ function Get-LogEvent {
             # to skip events we already found
             Found = $false
         }
-        
+
         [PSCustomObject] @{
-            Pattern = { param ($l) $l -like "Testhost process exiting*"}
-            Name = "TestHostStopping"
+            # time between we started and connected to console
+            Pattern = { param ($Message) $Message -like "DefaultEngineInvoker.StartProcessingAsync: Connected to vstest.console*"}
+            Name = "VstestConsoleConnected"
             Pair = "TestHostStarted"
             Found = $false
         }
         
+        [PSCustomObject] @{
+            # time betwen connecting to console and getting request
+            Pattern = { param ($Message) $Message -like "TestRequestHandler.ProcessRequests: received message: (TestExecution.StartWithSources)*"}
+            Name = "StartWithSources"
+            Pair = "VstestConsoleConnected"
+            Found = $false
+        }
+        
+        [PSCustomObject] @{
+            # looking up plugins
+            Pattern = { param ($Message, $Module) $Module -like "*testhost.dll" -and $Message -like "TestPluginCache.DiscoverTestExtensions: finding test extensions in assemblies *"}
+            Name = "LookingUpPlugins"
+            Pair = "StartWithSources"
+            Found = $false
+        }
+        
+        [PSCustomObject] @{
+            # plugin lookup 
+            Pattern = { param ($Message) $Message -like "TestExecutorService: Loaded the extensions*"}
+            Name = "LookedUpPlugins"
+            Pair = "LookingUpPlugins"
+            Found = $false
+        }
+        
+        [PSCustomObject] @{
+            Pattern = { param ($Message) $Message -like "TestDiscoveryManager: Discovering tests from sources*"}
+            Name = "DiscoveringTests"
+            Pair = "LookedUpPlugins"
+            Found = $false
+        }
+        
+        [PSCustomObject] @{
+            Pattern = { param ($Message) $Message -like "BaseRunTests.RunTestInternalWithExecutors: Running tests for*"}
+            Name = "RunningTests"
+            Pair = "DiscoveringTests"
+            Found = $false
+        }
+        
+        [PSCustomObject] @{
+            Pattern = { param ($Message) $Message -like "BaseRunTests.RunTests: Run is complete*"}
+            Name = "FinishedRunningTests"
+            Pair = "RunningTests"
+            Found = $false
+        }
+        
+        [PSCustomObject] @{
+            Pattern = { param ($Message) $Message -like "Testhost process exiting*"}
+            Name = "TestHostExiting"
+            Pair = "FinishedRunningTests"
+            Found = $false
+        }
+        
+        [PSCustomObject] @{
+            Pattern = { param ($Message) $Message -like "TestHostManagerCallbacks.ExitCallBack: Testhost processId:*exited*"}
+            Name = "TestHostExited"
+            Pair = "TestHostExiting"
+            Found = $false
+        }
+
+        [PSCustomObject] @{
+            # reports the whole time the testhost ran
+            Pattern = { param ($Message) $Message -like "SocketClient.PrivateStop: Stop communication from server endpoint*"}
+            Name = "TestHostDuration"
+            Pair = "TestHostStarted"
+            Found = $false
+        }
+        
+        # [PSCustomObject] @{
+        #     Pattern = { param ($Message) $Message -like "*"}
+        #     Name = ""
+        #     Pair = $null
+        #     Found = $false
+        # }
+        
+        # [PSCustomObject] @{
+        #     Pattern = { param ($Message) $Message -like "*"}
+        #     Name = ""
+        #     Pair = $null
+        #     Found = $false
+        # }
+        
+        # [PSCustomObject] @{
+        #     Pattern = { param ($Message) $Message -like "*"}
+        #     Name = ""
+        #     Pair = $null
+        #     Found = $false
+        # }
     )
     
     $hostEvents = [Collections.Generic.List[object]]@()
@@ -97,7 +185,7 @@ function Get-LogEvent {
                 continue
             }
 
-            if (-not (& $e.Pattern $message)) { 
+            if (-not (& $e.Pattern -Message $message -Module $module -TimeStamp $timeStamp -Line $line)) {
                 continue
             }
 
@@ -124,23 +212,27 @@ function Get-LogEvent {
                 Duration = 0 
             }
 
-            if ($r.Pair) { 
-                # if we have a pair we look for the last previous occurence of the event (at the moment we will have)
-                # only one occurence per event so right now it does not matter if we look for last or first, 
-                # but if some could repat in the future we probably want the last, because that is the closest one
-                # that happened to the current one so in this sequence start -> end -> start -> end
-                # we would find the second start for the second end, not the first start for the second end
-                $pair = $hostEvents | Where-Object Name -EQ $r.Pair | Select-Object -Last 1
-                $r.PairEvent = $pair
-                $r.Duration = [TimeSpan]::FromTicks($r.TimeStamp - $pair.TimeStamp)
-            }
-
             $hostEvents.Add($r)
             # one line cannot be more events jump to next line
             break 
         }
     }
 
-    $hostEvents | Sort-Object -Property TimeStamp
+    foreach ($r in $hostEvents) {
+        if ($r.Pair) { 
+            # if we have a pair we look for the last previous occurence of the event (at the moment we will have)
+            # only one occurence per event so right now it does not matter if we look for last or first, 
+            # but if some could repat in the future we probably want the last, because that is the closest one
+            # that happened to the current one so in this sequence start -> end -> start -> end
+            # we would find the second start for the second end, not the first start for the second end
+            $pair = $hostEvents | Where-Object Name -EQ $r.Pair | Select-Object -First 1
+            if (-not $pair) { 
+                throw "Could not find pair $($r.Pair) for $($r.Name)."
+            }
+            $r.PairEvent = $pair
+            $r.Duration = [TimeSpan]::FromTicks($r.TimeStamp - $pair.TimeStamp)
+        }
+    }
 
+    $hostEvents | Sort-Object -Property TimeStamp
 }

@@ -17,7 +17,7 @@ if ($dotnetVersion -notlike "3.1*") {
 
 Write-Host "Using dotnet $dotnetVersion"
 
-$versions = @("16.5", "16.7.1")
+$versions = @("16.5", "16.6.1", "16.7.1", "16.8.0")
 # uncomment to use all
 # $versions = @()
 
@@ -26,8 +26,8 @@ $framework = "MSTest"
 $classes = 60
 $tests = 60
 
-$tries = 3 # try 1 will build the dll from scratch
-$showFirstTry = $false
+$tries = 5 # try 1 will build the dll from scratch
+$showFirstTry = $true
 
 ####
 
@@ -97,39 +97,15 @@ foreach ($try in 1..$tries) {
 
             # avoid throws when we did not set a variable because we failed early
             Set-StrictMode -Off
-
-            try {
-                # process logs
-                $logEntries = Get-LogEvent $logDirectory
-                # host starting is when vstest.console starts testhost, 
-                # this is when it actually starts and logs first entry into the log
-                # so process startup + init + log init
-                $hostStarted = $logEntries | Where-Object Event -EQ "HostStarted"
-                # when the host logged the last message in host log
-                # unlike HostStopped when vstest.console detects that testhost process exited
-                $hostStopping = $logEntries | Where-Object Event -EQ "HostStopping"
-            }
-            catch { 
-                $hostDuration = [TimeSpan]::Zero
-                $events = @()
-            }
-
-
-            try {
-                # get testhost execution time
-                $hostLog = Get-ChildItem $logDirectory -Filter '*host*'
-                $hostLogContent = Get-Content $hostLog
-                $hostStart = [long]::Parse(($hostLogContent[0] -split ",", 6)[4])
-                $hostEnd = [long]::Parse(($hostLogContent[-1] -split ",", 6)[4])
-                $hostDuration = [TimeSpan]::FromTicks($hostEnd - $hostStart)
-            }
-            catch { 
-            }
-
             $duration = $sw.Elapsed
-            Write-Host "Time $($duration.TotalMilliseconds) ms"
+            Write-Host "Execution time $($duration.TotalSeconds) s"
+            $l = [Diagnostics.StopWatch]::StartNew()
+            Write-Host -ForegroundColor Magenta "Processing logs..."
+            $logEntries = Get-LogEvent $logDirectory
+            Write-Host -ForegroundColor Magenta "Done. Took $($l.Elapsed.TotalSeconds.ToString("0.00")) s"
+
             $entry = [PSCustomObject] @{
-                ObjectVersion = "4"
+                ObjectVersion = "5"
                 Now = [string] $now
                 Try = $try
                 HostDuration = $hostDuration
@@ -147,10 +123,13 @@ foreach ($try in 1..$tries) {
                 Total = $total
                 Tests = $tests
                 Framework = $framework
+                Log = $logEntries
             }
 
             $entries += $entry
             $entry | ConvertTo-Json | Set-Content "$log.json"
+
+            Set-StrictMode -Version Latest
         }
     }
 }
@@ -165,7 +144,7 @@ foreach ($e in $entriesFromFastest) {
     
     $durationDelta = ($e.DurationMs - $fastest.DurationMs).ToString("+0 ms").PadLeft(10) 
     $percentDelta = if (-not $fastest.DurationTicks) { 
-        "ERR %" 
+            "ERR %" 
         } 
         else { 
             ((($e.DurationTicks / $fastest.DurationTicks) - 1)).ToString("+0.000 %").PadLeft(10) 
@@ -174,7 +153,23 @@ foreach ($e in $entriesFromFastest) {
     $e | 
         Add-Member -Name DurationDiff -MemberType NoteProperty -Value $durationDelta -PassThru |
         Add-Member -Name PercentDiff -MemberType NoteProperty -Value $percentDelta
+
+    $eventNames = @()
+    foreach ($event in $e.Log) { 
+        $n = "_$($event.Name)"
+        $eventNames += $n
+        $e | Add-Member -Name $n -MemberType NoteProperty -Value $event.Duration
+        
+    }
+
+    $thd, $sum = $e.Log | ForEach-Object { $thd = $null; $d = [timespan]::Zero} { if ($_.Name -eq "TestHostDuration") { $thd = $_.Duration } else {  $d+= $_.Duration } } { $thd, $d}
+    $e | Add-Member -Name CapturedDuration -MemberType NoteProperty -Value ($sum)
+    $e | Add-Member -Name NonCapturedDuration -MemberType NoteProperty -Value ($thd-$sum)
+
+    # the time spend in non-host things. To see if the vstest.console overhead varies based on the testhost version (it shouldn't)
+    $e | Add-Member -Name NonHostTime -MemberType NoteProperty -Value ($thd-$e.Duration)
 }
 
-$entriesFromFastest | Where-Object { 1 -ne $_.Try -or $showFirstTry } | Format-Table PercentDiff, DurationDiff, DurationMs, Project, Try, Tests, Classes, Total, HostDuration
+
+$entriesFromFastest | Where-Object { 1 -ne $_.Try -or $showFirstTry } | Format-Table (@("PercentDiff", "DurationDiff", "DurationMs", "Project", "Try", "Tests", "Classes", "Total", "NonHostTime") + $eventNames + @("CapturedDuration", "NonCapturedDuration"))
  
