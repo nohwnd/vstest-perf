@@ -168,6 +168,11 @@ foreach ($e in $entriesFromFastest) {
 
     # the time spend in non-host things. To see if the vstest.console overhead varies based on the testhost version (it shouldn't)
     $e | Add-Member -Name NonHostTime -MemberType NoteProperty -Value ($thd-$e.Duration)
+    foreach ($p in $e.PSObject.Properties.GetEnumerator()) { 
+        if ($p.Value -is [timespan]) {
+            $p.Value = $p.Value.TotalSeconds.ToString("0.0000 s").PadLeft(10) 
+        }
+    }
 }
 
 
